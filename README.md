@@ -5,6 +5,36 @@
 A headless game client implementing the Unreal Engine 5 network protocol in pure Python.
 Connects to a UE5 Lyra Starter Game dedicated server and handles the full connection flow from handshake through login to actor replication.
 
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+  - [1. Start Server](#1-start-server)
+  - [2. Run client](#2-run-client)
+  - [3. Shutdown](#3-shutdown)
+- [Connection Flow](#connection-flow)
+- [Project Structure](#project-structure)
+- [Protocol Details](#protocol-details)
+  - [Bit Serialization](#bit-serialization)
+  - [Packet Wire Format](#packet-wire-format)
+    - [Handler Prefix (6 bits)](#handler-prefix-6-bits)
+    - [Two-Level Terminator](#two-level-terminator)
+    - [Packet Header (32-bit fixed)](#packet-header-32-bit-fixed)
+    - [Bunch](#bunch)
+  - [Channel Processing](#channel-processing)
+    - [Control Channel (ChIndex=0)](#control-channel-chindex0)
+    - [Actor Channel](#actor-channel)
+  - [Handshake](#handshake)
+  - [Reliability System](#reliability-system)
+- [Data Files](#data-files)
+- [Example Log](#example-log)
+- [Extensions](#extensions)
+  - [Register Spawn Processor](#register-spawn-processor)
+  - [Register RPC Handler](#register-rpc-handler)
+  - [RepLayout Template](#replayout-template)
+- [Limitations](#limitations)
+- [License](#license)
+
 ## Requirements
 
 - Python 3.10+
@@ -209,7 +239,7 @@ Receiver strips in reverse order:
 
 Missing inner terminator causes `ZeroLastByte` fault → server disconnects.
 
-### Packet Header (32-bit fixed)
+#### Packet Header (32-bit fixed)
 
 Packet header managed by `FNetPacketNotify`:
 
@@ -228,11 +258,11 @@ Optional JitterClockTime info may follow the header (v14+):
 [bHasPacketInfo: 1 bit] → [JitterClockTimeMS: SerializeInt(1024)] [bHasServerFrameTime: 1 bit] → [ServerFrameTime: 8 bits]
 ```
 
-### Bunch
+#### Bunch
 
 One or more bunches follow the packet header. Each bunch is a data unit for a specific channel.
 
-#### Bunch Header
+##### Bunch Header
 
 ```
 [bControl: 1]
@@ -251,13 +281,13 @@ One or more bunches follow the packet header. Each bunch is a data unit for a sp
 [Payload: PayloadBitCount bits]
 ```
 
-#### Channel Sequence
+##### Channel Sequence
 
 - Reliable: per-channel independent sequence 0~1023. Wrapping comparison via `MakeRelative(half=512, mod=1024)`.
 - Unreliable Partial: uses packet sequence as bunch sequence.
 - Unreliable Non-Partial: sequence 0 (ordering not required).
 
-#### Partial Bunch Assembly
+##### Partial Bunch Assembly
 
 Large data is split across multiple bunches:
 
