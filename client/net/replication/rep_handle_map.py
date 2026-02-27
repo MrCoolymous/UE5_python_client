@@ -57,6 +57,7 @@ _STRUCT_SERIALIZERS = {
 
     # Compound structs
     "struct:RepMovement":                   lambda r, _: read_rep_movement(r),
+    "struct:RepMovement_Short":             lambda r, _: read_rep_movement(r, rotation_short=True),
     "struct:UniqueNetIdRepl":               lambda r, _: FUniqueNetIdRepl.read(r),
     "struct:Vector_NetQuantizeNormal":      lambda r, _: read_vector_fixed_normal(r),
     "struct:GameplayAbilityRepAnimMontage": lambda r, _: read_gameplay_ability_rep_anim_montage(r),
@@ -74,9 +75,18 @@ def _load_data() -> dict:
 
 
 _DATA = _load_data()
-_HANDLE_MAPS: dict[str, list[dict]] = _DATA.get("handle_maps", {})
-_HANDLE_COUNTS: dict[str, int] = _DATA.get("handle_counts", {})
-_PARENT_MAP: dict[str, str] = _DATA.get("parent_map", {})
+_CLASSES: dict[str, dict] = _DATA.get("classes", {})
+_HANDLE_MAPS: dict[str, list[dict]] = {
+    name: info.get("handles", []) for name, info in _CLASSES.items()
+}
+_HANDLE_COUNTS: dict[str, int] = {
+    name: max((e["h"] for e in info.get("handles", []) if "h" in e), default=0)
+    for name, info in _CLASSES.items()
+}
+_PARENT_MAP: dict[str, str] = {
+    name: info["parent"] for name, info in _CLASSES.items() if "parent" in info
+}
+del _CLASSES
 
 
 def _build_entries(entries: list[dict], overrides: dict, exclude: set) -> list[PropertyDef]:

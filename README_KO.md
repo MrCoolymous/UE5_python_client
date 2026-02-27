@@ -167,14 +167,14 @@ Lyra/
 │       │   ├── templates/
 │       │   │   └── game_state.py            # GameState 서버 시간 동기화 콜백
 │       │   └── data/
-│       │       └── rep_layout.json          # 클래스별 프로퍼티 정의 (UE5_RepLayout_Extractor)
+│       │       └── rep_layout.json          # 클래스별 프로퍼티 정의 (RepSeedDumper + RepSeedResolver)
 │       │
 │       ├── guid/                            # 네트워크 GUID 관리
 │       │   ├── package_map_client.py        # NetGUIDCache — GUID ↔ 경로 매핑
 │       │   ├── net_field_export.py          # 필드 이름 export 추적
 │       │   ├── static_field_mapping.py      # 클래스별 필드 인덱스 매핑
 │       │   └── data/
-│       │       └── max_values.json          # 클래스별 SerializeInt 최댓값 (UE5_ClassNetCache_Extractor)
+│       │       └── class_net_cache.json     # 클래스별 넷 필드 export (RepSeedDumper + RepSeedResolver)
 │       │
 │       ├── identity/                        # 플레이어 ID 시스템
 │       │   ├── unique_net_id.py             # FUniqueNetId — 플랫폼 ID (NULL/STEAM/EOS 등)
@@ -188,7 +188,7 @@ Lyra/
 │           └── base.py                      # RPCBase + RPCRegistry
 │
 ├── example/                                 # 예제 출력
-│   └── client_20260224_004909.log           # 실제 연결 세션 로그 (패킷 + 리플리케이션 결과)
+│   └── client_20260227_204023.log           # 실제 연결 세션 로그 (패킷 + 리플리케이션 결과)
 │
 └── .gitignore
 ```
@@ -351,7 +351,7 @@ ContentBlock:
 
 Payload 안에서:
 1. RepLayout 프로퍼티 (`bHasRepLayout=1`): `ReadUInt32Packed`로 핸들을 읽고, `rep_layout.json`에서 해당 클래스의 `PropertyDef`를 찾아 타입별 역직렬화기를 호출
-2. 동적 필드 (RepLayout 이후 남은 비트): `SerializeInt(field_max+1)`로 필드 인덱스, `UInt32Packed`로 비트 수를 읽고, `max_values.json`으로 매핑하여 RPC/CustomDelta 처리
+2. 동적 필드 (RepLayout 이후 남은 비트): `SerializeInt(field_max+1)`로 필드 인덱스, `UInt32Packed`로 비트 수를 읽고, `class_net_cache.json`으로 매핑하여 RPC/CustomDelta 처리
 
 ### 핸드셰이크
 
@@ -390,16 +390,19 @@ Reliable 번치가 순서대로 도착하지 않으면 `in_rec` 딕셔너리에 
 
 ## 데이터 파일
 
-`data/` 디렉터리의 JSON은 UE5 프로젝트에서 자동 추출한 데이터입니다. 다른 프로젝트에 적용하려면 아래 도구로 재생성하세요:
+`data/` 디렉터리의 JSON은 2단계 파이프라인으로 UE5 프로젝트에서 생성한 데이터입니다:
 
-| 파일 | 생성 도구 |
-|------|-----------|
-| `rep_layout.json` | [UE5_RepLayout_Extractor](https://github.com/Mokocoder/UE5_RepLayout_Extractor) |
-| `max_values.json` | [UE5_ClassNetCache_Extractor](https://github.com/Mokocoder/UE5_ClassNetCache_Extractor) |
+1. **[RepSeedDumper](https://github.com/Mokocoder/RepSeedDumper)** — 실행 중인 UE 프로세스에 DLL을 인젝션하여 C++ 네이티브 클래스의 리플리케이션 시드(`replication_seed.json`)를 추출합니다.
+2. **[RepSeedResolver](https://github.com/Mokocoder/RepSeedResolver)** — `.pak` 파일을 스캔하고 시드 데이터를 사용하여 블루프린트 클래스의 리플리케이션 핸들과 ClassNetCache 인덱스를 해석합니다.
+
+| 파일 | 설명 |
+|------|------|
+| `rep_layout.json` | 클래스별 리플리케이션 프로퍼티 핸들 (C++ 시드 + BP 프로퍼티) |
+| `class_net_cache.json` | 클래스별 넷 필드 export 인덱스 (RPC/CustomDelta 해석용) |
 
 ## 예제 로그
 
-`example/client_20260224_004909.log`에 실제 연결 세션의 전체 로그가 포함되어 있습니다:
+`example/client_20260227_204023.log`에 실제 연결 세션의 전체 로그가 포함되어 있습니다:
 
 ```
 [->] Init               (48) a00102000098e40f32...

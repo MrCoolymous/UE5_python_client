@@ -167,14 +167,14 @@ Lyra/
 │       │   ├── templates/
 │       │   │   └── game_state.py            # GameState server time sync callback
 │       │   └── data/
-│       │       └── rep_layout.json          # Per-class property defs (UE5_RepLayout_Extractor)
+│       │       └── rep_layout.json          # Per-class property defs (RepSeedDumper + RepSeedResolver)
 │       │
 │       ├── guid/                            # Network GUID management
 │       │   ├── package_map_client.py        # NetGUIDCache — GUID ↔ path mapping
 │       │   ├── net_field_export.py          # Field name export tracking
 │       │   ├── static_field_mapping.py      # Per-class field index mapping
 │       │   └── data/
-│       │       └── max_values.json          # Per-class SerializeInt max (UE5_ClassNetCache_Extractor)
+│       │       └── class_net_cache.json     # Per-class net field exports (RepSeedDumper + RepSeedResolver)
 │       │
 │       ├── identity/                        # Player ID system
 │       │   ├── unique_net_id.py             # FUniqueNetId — platform ID (NULL/STEAM/EOS, etc.)
@@ -188,7 +188,7 @@ Lyra/
 │           └── base.py                      # RPCBase + RPCRegistry
 │
 ├── example/                                 # Example output
-│   └── client_20260224_004909.log           # Actual connection session log
+│   └── client_20260227_204023.log           # Actual connection session log
 │
 └── .gitignore
 ```
@@ -351,7 +351,7 @@ ContentBlock:
 
 Inside payload:
 1. RepLayout properties (`bHasRepLayout=1`): read handle via `ReadUInt32Packed`, look up `PropertyDef` for the class in `rep_layout.json`, invoke type-specific deserializer
-2. Dynamic fields (remaining bits after RepLayout): read field index via `SerializeInt(field_max+1)`, bit count via `UInt32Packed`, map using `max_values.json` for RPC/CustomDelta processing
+2. Dynamic fields (remaining bits after RepLayout): read field index via `SerializeInt(field_max+1)`, bit count via `UInt32Packed`, map using `class_net_cache.json` for RPC/CustomDelta processing
 
 ### Handshake
 
@@ -390,16 +390,19 @@ If reliable bunches arrive out of order, they are buffered in the `in_rec` dicti
 
 ## Data Files
 
-JSON files in `data/` directories are auto-extracted from the UE5 project. To apply to other projects, regenerate with the tools below:
+JSON files in `data/` directories are generated from the UE5 project using a two-stage pipeline:
 
-| File | Generation Tool |
-|------|-----------------|
-| `rep_layout.json` | [UE5_RepLayout_Extractor](https://github.com/Mokocoder/UE5_RepLayout_Extractor) |
-| `max_values.json` | [UE5_ClassNetCache_Extractor](https://github.com/Mokocoder/UE5_ClassNetCache_Extractor) |
+1. **[RepSeedDumper](https://github.com/Mokocoder/RepSeedDumper)** — Runtime DLL injected into a running UE process. Extracts C++ native class replication seeds (`replication_seed.json`).
+2. **[RepSeedResolver](https://github.com/Mokocoder/RepSeedResolver)** — Scans `.pak` files and resolves Blueprint class replication handles and ClassNetCache indices using the seed data.
+
+| File | Description |
+|------|-------------|
+| `rep_layout.json` | Per-class replication property handles (C++ seed + BP properties) |
+| `class_net_cache.json` | Per-class net field export indices for RPC/CustomDelta resolution |
 
 ## Example Log
 
-`example/client_20260224_004909.log` contains the full log of an actual connection session:
+`example/client_20260227_204023.log` contains the full log of an actual connection session:
 
 ```
 [->] Init               (48) a00102000098e40f32...

@@ -1,5 +1,5 @@
 # net/guid/static_field_mapping.py
-"""Static field mapping loaded from max_values.json.
+"""Static field mapping loaded from class_net_cache.json.
 
 Provides class max values for SerializeInt, per-class field index resolution, and detection.
 """
@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-_JSON_PATH = Path(__file__).parent / "data" / "max_values.json"
+_JSON_PATH = Path(__file__).parent / "data" / "class_net_cache.json"
 
 
 def _load_json() -> dict:
@@ -20,22 +20,22 @@ def _load_json() -> dict:
 
 
 def _parse_max_values(raw: dict) -> dict[str, int]:
-    values = raw.get("max_values", {})
     return {
-        k: v for k, v in values.items()
-        if isinstance(k, str) and isinstance(v, int) and v > 0
+        name: info["max"]
+        for name, info in raw.get("classes", {}).items()
+        if isinstance(info.get("max"), int) and info["max"] > 0
     }
 
 
 def _parse_per_class(raw: dict) -> dict[str, dict[int, str]]:
     """Build class_name -> {field_index -> field_name} mapping."""
     result: dict[str, dict[int, str]] = {}
-    for class_name, info in raw.get("per_class", {}).items():
+    for class_name, info in raw.get("classes", {}).items():
         index_map: dict[int, str] = {}
-        for idx_str, field_info in info.get("fields", {}).items():
-            name = field_info.get("name")
+        for i, field in enumerate(info.get("fields", [])):
+            name = field.get("name")
             if name:
-                index_map[int(idx_str)] = name
+                index_map[i] = name
         if index_map:
             result[class_name] = index_map
     return result

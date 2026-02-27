@@ -14,7 +14,6 @@ from constants import (
     ENGINE_NET_VER_PACKED_VECTOR_LWC_SUPPORT,
     ENGINE_NET_VER_REP_MOVE_SERVER_FRAME_AND_HANDLE,
     ENGINE_NET_VER_21_AND_VIEW_PITCH_ONLY_DONOTUSE,
-    ENGINE_NET_VER_SUB_OBJECT_DESTROY_FLAG,
     ENGINE_NET_VER_DYNAMIC_MONTAGE_SERIALIZATION,
     ENGINE_NET_VER_PREDICTION_KEY_BASE_NOT_REPLICATED,
     ENGINE_NET_VER_REP_MOVE_OPTIONAL_ACCELERATION,
@@ -310,28 +309,22 @@ def read_rotation_compressed_byte(reader: 'FBitReader') -> Optional[FRotator]:
 # FRepMovement
 # ---------------------------------------------------------------------------
 
-def read_rep_movement(reader: 'FBitReader', rotation_short: bool = False, engine_ver: int = ENGINE_NET_VER_CURRENT) -> Optional[dict]:
-    """FRepMovement::NetSerialize — version-aware.
+_VEL_MAG_SQ_MAX = 1e10  # 100k cm/s squared — fallback trigger for rotation mode
 
-    Flags:
-      v25+ (RepMoveServerFrameAndHandle): 4 bits
-        bit 0: Flag_SimulatedPhysicSleep (1)
-        bit 1: Flag_RepPhysics          (2)
-        bit 2: Flag_ServerFrameIsPresent (4)
-        bit 3: Flag_ServerPhysicsHandleIsPresent (8)
-      Older: 2 bits (only bit 0-1)
 
-    Serialization order:
-      Location (FVector_NetQuantize100, scale=100)
-      Rotation (CompressedByte or CompressedShort)
-      LinearVelocity (FVector_NetQuantize, scale=1)
-      [AngularVelocity if RepPhysics]
-      [ServerFrame if present]          (v25+ only)
-      [ServerPhysicsHandle if present]  (v25+ only)
-      [Acceleration if bRepAcceleration bit set]  (v35+ only)
+def read_rep_movement(
+    reader: 'FBitReader',
+    rotation_short: Optional[bool] = None,
+    engine_ver: int = ENGINE_NET_VER_CURRENT,
+) -> Optional[dict]:
+    """FRepMovement::NetSerialize
+
+    ERotatorQuantization is CDO-dependent and not on the wire.
+    When rotation_short is None (default), both modes are tried:
+    ByteComponents first, then ShortComponents if the resulting
+    LinearVelocity magnitude is implausible
     """
-    b_server_frame_supported = _ver_check(
-        engine_ver, ENGINE_NET_VER_REP_MOVE_SERVER_FRAME_AND_HANDLE)
+    b_server_frame_supported = _ver_check(engine_ver, ENGINE_NET_VER_REP_MOVE_SERVER_FRAME_AND_HANDLE)
 
     flag_bits = 4 if b_server_frame_supported else 2
     if reader.get_bits_left() < flag_bits:
@@ -347,15 +340,23 @@ def read_rep_movement(reader: 'FBitReader', rotation_short: bool = False, engine
     if location is None:
         return None
 
-    if rotation_short:
-        rotation = read_rotation_compressed_short(reader)
-    else:
-        rotation = read_rotation_compressed_byte(reader)
-    if rotation is None:
-        return None
+    candidates = [rotation_short] if rotation_short is not None else [False, True]
+    checkpoint = reader.get_pos_bits()
 
-    linear_velocity = read_quantized_vector(reader, 1, engine_ver)
-    if linear_velocity is None:
+    rotation = linear_velocity = None
+    for is_short in candidates:
+        reader.set_pos_bits(checkpoint)
+        rot = (read_rotation_compressed_short if is_short else read_rotation_compressed_byte)(reader)
+        if rot is None:
+            continue
+        vel = read_quantized_vector(reader, 1, engine_ver)
+        if vel is None:
+            continue
+        if vel.x * vel.x + vel.y * vel.y + vel.z * vel.z <= _VEL_MAG_SQ_MAX:
+            rotation, linear_velocity = rot, vel
+            break
+
+    if rotation is None:
         return None
 
     result = {
