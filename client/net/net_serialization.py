@@ -233,6 +233,14 @@ def read_network_guid(reader: 'FBitReader') -> int:
     return reader.read_uint32()
 
 
+def write_network_guid(writer: 'FBitWriter', value: int) -> None:
+    """Write FNetworkGUID value to the bitstream."""
+    if NET_GUID_PACKED64:
+        writer.write_uint64_packed(int(value))
+    else:
+        writer.write_uint32(int(value) & 0xFFFFFFFF)
+
+
 def read_fname(reader: 'FBitReader') -> str:
     """FName — UE5 StaticSerializeName.
 

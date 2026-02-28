@@ -6,3 +6,4 @@ env/
 .claude/
 .env
 start_server.ps1
+cleanup.ps1
