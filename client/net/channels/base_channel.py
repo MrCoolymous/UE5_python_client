@@ -1,6 +1,7 @@
 # net/channels/base_channel.py
 """Base Channel with partial bunch handling."""
 from __future__ import annotations
+import time
 from typing import TYPE_CHECKING, Optional
 
 from core.names.ename import EName
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 class Channel:
     __slots__ = (
-        'connection', 'ch_index', 'ch_name',
+        'connection', 'ch_index', 'ch_name', 'created_at',
         'opened_locally', 'open_acked', 'closing', 'dormant', 'broken',
         'open_packet_id',
         'num_in_rec', 'in_rec',
@@ -28,6 +29,7 @@ class Channel:
         self.connection = connection
         self.ch_index = ch_index
         self.ch_name = ch_name
+        self.created_at: float = time.perf_counter()
 
         self.opened_locally: bool = ch_name == EName.Control
         self.open_acked: bool = not self.opened_locally

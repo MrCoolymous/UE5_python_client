@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from commands.base import drain_log_lines, wait_for_log
+
 _STATIC_HTML: str | None = None
 
 
@@ -64,6 +66,21 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed.path == "/health":
             self._json(HTTPStatus.OK, {"ok": True})
             return
+
+        if parsed.path == "/logs":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            try:
+                while True:
+                    wait_for_log(timeout=5.0)
+                    for line in drain_log_lines():
+                        self.wfile.write(f"data: {json.dumps(line)}\n\n".encode())
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
 
         if parsed.path == "/cmd":
             qs = parse_qs(parsed.query)

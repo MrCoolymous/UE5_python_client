@@ -1,23 +1,43 @@
-#!/usr/bin/env python3
+# client.py
 from __future__ import annotations
+
 import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import queue
 import socket
 import time
 import traceback
 from datetime import datetime
 
 from app_config import LOCAL_NETWORK_VERSION
-from net.handlers.stateless_connect import StatelessConnectHandlerComponent
+from commands import CommandContext, drain_commands, tick_all
+from constants import SEQ_NUMBER_MASK
+from dashboard import start_server as start_dashboard
 from net.connection import NetConnection
+from net.handlers.stateless_connect import StatelessConnectHandlerComponent
 from net.packets.control import NMT
 from net.state.session_state import get_session_state
-from constants import SEQ_NUMBER_MASK
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+DEFAULT_SERVER_IP = "127.0.0.1"
+DEFAULT_SERVER_PORT = 7777
+TIMEOUT = 1.0
+KEEPALIVE_INTERVAL = 10.0
+COMMAND_HTTP_HOST = "127.0.0.1"
+COMMAND_HTTP_PORT = 18765
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
 
 class Logger:
-    __slots__ = ('terminal', 'log')
+    __slots__ = ("terminal", "log")
 
     def __init__(self, filename: str):
         self.terminal = sys.stdout
@@ -40,20 +60,17 @@ def configure_output_logging() -> None:
     global _logger
     if _logger is not None:
         return
-
     log_file = f"client_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     _logger = Logger(log_file)
     sys.stdout = _logger
     sys.stderr = _logger
 
-# Configuration
-DEFAULT_SERVER_IP = "127.0.0.1"
-DEFAULT_SERVER_PORT = 7777
-TIMEOUT = 1.0
-KEEPALIVE_INTERVAL = 10.0
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
-def main(server_ip: str, server_port: int):
+def main(server_ip: str, server_port: int, *, dashboard: bool = False) -> None:
     print("=" * 60)
     print(f"Server: {server_ip}:{server_port}")
     print("=" * 60)
@@ -62,20 +79,21 @@ def main(server_ip: str, server_port: int):
     sock.settimeout(TIMEOUT)
 
     display_name = "Player"
+    server_addr = (server_ip, server_port)
 
     stateless = StatelessConnectHandlerComponent(
         CachedClientID=0,
-        LocalNetworkVersion=LOCAL_NETWORK_VERSION
+        LocalNetworkVersion=LOCAL_NETWORK_VERSION,
     )
 
+    command_http_server = None
     try:
-        # Step 1: Initial handshake
+        # -- Handshake -------------------------------------------------------
         pkt = stateless.get_initial_packet()
         print(f"[->] Init               ({len(pkt)}) {pkt.hex()}")
-        sock.sendto(pkt, (server_ip, server_port))
+        sock.sendto(pkt, server_addr)
         print(f"[INFO] Client local port: {sock.getsockname()[1]}")
 
-        # Step 2: Receive challenge
         data, addr = sock.recvfrom(4096)
         print(f"[<-] Challenge          ({len(data)}) {data.hex()}")
         challenge = stateless.parse_handshake_packet(data)
@@ -86,12 +104,10 @@ def main(server_ip: str, server_port: int):
                 print(f"[WARN] Version mismatch! Client: {LOCAL_NETWORK_VERSION}")
             stateless.LocalNetworkVersion = challenge.LocalNetworkVersion
 
-        # Step 3: Challenge response
         pkt = stateless.get_challenge_response_packet(challenge)
         print(f"[->] Challenge Response ({len(pkt)}) {pkt.hex()}")
-        sock.sendto(pkt, (server_ip, server_port))
+        sock.sendto(pkt, server_addr)
 
-        # Step 4: Challenge ack
         data, addr = sock.recvfrom(4096)
         print(f"[<-] Challenge Ack      ({len(data)}) {data.hex()}")
         ack = stateless.parse_handshake_packet(data)
@@ -110,26 +126,33 @@ def main(server_ip: str, server_port: int):
             initial_out_seq=out_seq,
             local_network_version=net_version,
         )
-        session_state = get_session_state(conn)
-
+        get_session_state(conn).login_params = {"URL": f"?Name={display_name}"}
         conn.set_handlers([stateless])
 
-        # Step 5: Hello
         pkt = NMT.Hello.Get(conn)
         print(f"[->] NMT_Hello          ({len(pkt)}) {pkt.hex()}")
-        sock.sendto(pkt, (server_ip, server_port))
-
-        session_state.login_params = {
-            "URL": f"?Name={display_name}",
-        }
+        sock.sendto(pkt, server_addr)
 
         print("\n" + "=" * 60)
         print("Connected! Listening...")
         print("=" * 60 + "\n")
 
+        # -- Dashboard & command queue ---------------------------------------
+        command_queue: queue.Queue[str] = queue.Queue()
+        if dashboard:
+            command_http_server = start_dashboard(command_queue, COMMAND_HTTP_HOST, COMMAND_HTTP_PORT)
+
+        ctx = CommandContext(conn=conn, sock=sock, server_addr=server_addr)
         last_send = time.time()
 
+        # -- Event loop ------------------------------------------------------
         while True:
+            sent, should_disconnect = drain_commands(command_queue, ctx)
+            if sent:
+                last_send = time.time()
+            if should_disconnect:
+                break
+
             try:
                 data, addr = sock.recvfrom(4096)
                 print(f"[<-] Server             ({len(data)}) {data.hex()}")
@@ -139,33 +162,44 @@ def main(server_ip: str, server_port: int):
                     sock.sendto(pkt, addr)
                     last_send = time.time()
 
+                if tick_all(conn, sock, server_addr):
+                    last_send = time.time()
+
                 if conn.b_closed:
                     print(f"[INFO] Server closed connection: {conn.close_reason or 'no reason'}")
                     break
 
             except socket.timeout:
-                pass
+                if tick_all(conn, sock, server_addr):
+                    last_send = time.time()
 
             except KeyboardInterrupt:
                 print("\n[INFO] Disconnecting...")
                 try:
                     pkt = conn.create_disconnect_packet()
-                    sock.sendto(pkt, (server_ip, server_port))
+                    sock.sendto(pkt, server_addr)
                     print(f"[->] Disconnect         ({len(pkt)}) {pkt.hex()}")
                 except Exception:
                     pass
                 break
+
             except Exception:
                 traceback.print_exc()
                 break
 
             if time.time() - last_send >= KEEPALIVE_INTERVAL:
-                keepalive_packet = conn.create_empty_packet(80)
-                sock.sendto(keepalive_packet, (server_ip, server_port))
+                keepalive = conn.create_empty_packet(80)
+                sock.sendto(keepalive, server_addr)
                 last_send = time.time()
                 print("[->] Keepalive")
 
     finally:
+        if command_http_server is not None:
+            try:
+                command_http_server.shutdown()
+                command_http_server.server_close()
+            except Exception:
+                pass
         sock.close()
         print("[INFO] Connection closed")
 
@@ -175,5 +209,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--ip", default=DEFAULT_SERVER_IP)
     p.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT)
+    p.add_argument("--dashboard", action="store_true", help="enable web dashboard")
     a = p.parse_args()
-    main(a.ip, a.port)
+    main(server_ip=a.ip, server_port=a.port, dashboard=a.dashboard)

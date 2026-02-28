@@ -74,7 +74,7 @@ body{
   <div id="dot" class="dot" title="health"></div>
   <button data-cmd="move status">move status</button>
   <button data-cmd="move stop">move stop</button>
-  <button data-cmd='move fx="400*sin(t)" fy="400*cos(t)" duration=6'>circle</button>
+  <button data-cmd='move fx="400*sin(2*pi*t/6)" fy="400*cos(2*pi*t/6)" duration=6'>circle</button>
   <button data-cmd='move fx="500" duration=3'>forward</button>
 </div>
 <script>
@@ -89,7 +89,8 @@ let hIdx=-1;
 function ts(){return new Date().toLocaleTimeString("en-GB",{hour12:false})}
 
 function append(html){
-  log.innerHTML=html+"\n"+log.innerHTML;
+  log.innerHTML+=html+"\n";
+  log.scrollTop=log.scrollHeight;
 }
 
 async function exec(c){
@@ -121,6 +122,13 @@ async function health(){
   catch(_){dot.className="dot bad"}
 }
 health();setInterval(health,3000);
+
+const es=new EventSource("/logs");
+es.onmessage=e=>{
+  const msg=JSON.parse(e.data);
+  append(`<span class="ts">${ts()}</span> ${esc(msg)}`);
+};
+
 cmd.focus();
 </script>
 </body>
