@@ -69,6 +69,15 @@ class FBitWriter:
         num_bytes = (length_bits + 7) // 8
         self._write_bits(value.to_bytes(num_bytes, "little"), length_bits)
 
+    def write_float(self, value: float) -> None:
+        self._write_bits(struct.pack("<f", float(value)), 32)
+
+    def write_uint16(self, value: int) -> None:
+        self._write_bits(struct.pack("<H", int(value) & 0xFFFF), 16)
+
+    def write_int16(self, value: int) -> None:
+        self._write_bits(struct.pack("<H", int(value) & 0xFFFF), 16)
+
     def write_double(self, value: float) -> None:
         self._write_bits(struct.pack("<d", value), 64)
 

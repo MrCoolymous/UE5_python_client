@@ -13,7 +13,6 @@ from net.net_serialization import (
     read_rotation_compressed_short,
     read_rotator_smart_pitch,
     read_rep_movement,
-    read_gameplay_ability_rep_anim_montage,
 )
 from net.identity.unique_net_id_repl import FUniqueNetIdRepl
 
@@ -60,8 +59,12 @@ _STRUCT_SERIALIZERS = {
     "struct:RepMovement_Short":             lambda r, _: read_rep_movement(r, rotation_short=True),
     "struct:UniqueNetIdRepl":               lambda r, _: FUniqueNetIdRepl.read(r),
     "struct:Vector_NetQuantizeNormal":      lambda r, _: read_vector_fixed_normal(r),
-    "struct:GameplayAbilityRepAnimMontage": lambda r, _: read_gameplay_ability_rep_anim_montage(r),
 }
+
+
+def register_struct_serializer(type_str: str, serializer) -> None:
+    """Register an external struct serializer (e.g. from game-specific modules)."""
+    _STRUCT_SERIALIZERS[type_str] = serializer
 
 
 _MISSING_ENUM_BITS: set[str] = set()

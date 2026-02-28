@@ -8,21 +8,19 @@ from net.error_reporter import report_exception, PARSE_EXCEPTIONS
 from net.types import FVector, FRotator
 from constants import (
     ENGINE_NET_VER_CURRENT,
-    ENGINE_NET_VER_MONTAGE_PLAY_INST_ID,
     ENGINE_NET_VER_OPTIONALLY_QUANTIZE_SPAWN_INFO,
     ENGINE_NET_VER_SERIALIZE_DOUBLE_VECTORS_AS_DOUBLES,
     ENGINE_NET_VER_PACKED_VECTOR_LWC_SUPPORT,
     ENGINE_NET_VER_REP_MOVE_SERVER_FRAME_AND_HANDLE,
     ENGINE_NET_VER_21_AND_VIEW_PITCH_ONLY_DONOTUSE,
-    ENGINE_NET_VER_DYNAMIC_MONTAGE_SERIALIZATION,
     ENGINE_NET_VER_PREDICTION_KEY_BASE_NOT_REPLICATED,
     ENGINE_NET_VER_REP_MOVE_OPTIONAL_ACCELERATION,
-    ENGINE_NET_VER_MONTAGE_PLAY_COUNT_SERIALIZATION,
     NET_GUID_PACKED64,
 )
 
 if TYPE_CHECKING:
     from serialization.bit_reader import FBitReader
+    from serialization.bit_writer import FBitWriter
 
 
 def _bytes_to_int_lsb(data: bytes, n_bits: int) -> int:
@@ -450,51 +448,52 @@ def read_prediction_key(reader: 'FBitReader', engine_ver: int = ENGINE_NET_VER_C
 
 
 # ---------------------------------------------------------------------------
-# FGameplayAbilityRepAnimMontage
+# Write helpers
 # ---------------------------------------------------------------------------
 
-def read_gameplay_ability_rep_anim_montage(reader: 'FBitReader', engine_ver: int = ENGINE_NET_VER_CURRENT) -> dict:
-    """FGameplayAbilityRepAnimMontage::NetSerialize — version-aware."""
-    result: dict = {}
+def _round_to_int(value: float) -> int:
+    """Round-to-nearest, ties away from zero"""
+    if value >= 0.0:
+        return int(value + 0.5)
+    return -int((-value) + 0.5)
 
-    # ver >= DynamicMontageSerialization: 1-bit bIsMontage
-    b_is_montage = True
-    if engine_ver >= ENGINE_NET_VER_DYNAMIC_MONTAGE_SERIALIZATION:
-        b_is_montage = bool(reader.read_bit())
 
-    # Position or SectionId
-    b_rep_position = reader.read_bit()
-    if b_rep_position:
-        result['Position'] = reader.read_float()
-    else:
-        result['SectionIdToPlay'] = reader.serialize_bits(7)[0] & 0x7F
+def compress_axis_to_short(angle: float) -> int:
+    """FRotator::CompressAxisToShort."""
+    return _round_to_int(float(angle) * (65536.0 / 360.0)) & 0xFFFF
 
-    result['IsStopped'] = bool(reader.read_bit())
 
-    # ver < MontagePlayInstId: 1-bit bForcePlayBit
-    if engine_ver < ENGINE_NET_VER_MONTAGE_PLAY_INST_ID:
-        reader.read_bit()  # bForcePlayBit (deprecated)
+def compress_axis_to_byte(angle: float) -> int:
+    """FRotator::CompressAxisToByte."""
+    return _round_to_int(float(angle) * (256.0 / 360.0)) & 0xFF
 
-    result['SkipPositionCorrection'] = bool(reader.read_bit())
-    result['bSkipPlayRate'] = bool(reader.read_bit())
 
-    result['Animation'] = read_network_guid(reader)
-    result['PlayRate'] = reader.read_float()
-    result['BlendTime'] = reader.read_float()
-    result['NextSectionID'] = reader.read_byte()
+def write_rotator_compressed_short(writer: 'FBitWriter', pitch: float, yaw: float, roll: float) -> None:
+    """TRotator::SerializeCompressedShort — conditional 16-bit per component."""
+    for angle in (pitch, yaw, roll):
+        compressed = compress_axis_to_short(angle)
+        writer.write_bit(compressed != 0)
+        if compressed != 0:
+            writer.write_uint16(compressed)
 
-    # ver >= MontagePlayInstId: PlayInstanceId
-    if engine_ver >= ENGINE_NET_VER_MONTAGE_PLAY_INST_ID:
-        result['PlayInstanceId'] = reader.read_byte()
 
-    result['PredictionKey'] = read_prediction_key(reader, engine_ver)
+def write_quantized_vector_scaled(writer: 'FBitWriter', x: float, y: float, z: float, scale: int) -> None:
+    """WriteQuantizedVector (v23+) with the given integer scale."""
+    sx = _round_to_int(float(x) * float(scale))
+    sy = _round_to_int(float(y) * float(scale))
+    sz = _round_to_int(float(z) * float(scale))
+    max_abs = max(abs(sx), abs(sy), abs(sz))
+    # GetBitsNeeded returns at least 1 (sign bit).
+    n_bits = max(1, min(63, max_abs.bit_length() + 1))
 
-    if not b_is_montage:
-        result['BlendOutTime'] = reader.read_float()
-        result['SlotName'] = read_fname(reader)
+    # Header: low 6 bits = component bit count, bit 6 = bUseScaledValue.
+    header = n_bits | 0x40
+    writer.serialize_int(header, 128)
 
-    # ver >= MontagePlayCountSerialization: PlayCount (float)
-    if engine_ver >= ENGINE_NET_VER_MONTAGE_PLAY_COUNT_SERIALIZATION:
-        result['PlayCount'] = reader.read_float()
+    def _write_signed(value: int) -> None:
+        raw = (1 << n_bits) + value if value < 0 else value
+        writer.serialize_bits(raw.to_bytes((n_bits + 7) // 8, "little"), n_bits)
 
-    return result
+    _write_signed(sx)
+    _write_signed(sy)
+    _write_signed(sz)
