@@ -7,7 +7,7 @@ Connects to a UE5 Lyra Starter Game dedicated server and handles the full connec
 
 ## Demo
 
-[![Demo Video](https://img.youtube.com/vi/qLgJLLM0T5s/maxresdefault.jpg)](https://youtu.be/qLgJLLM0T5s)
+[![Demo Video](https://img.youtube.com/vi/UikAOca_I3c/maxresdefault.jpg)](https://youtu.be/UikAOca_I3c)
 
 ## Table of Contents
 
@@ -32,6 +32,9 @@ Connects to a UE5 Lyra Starter Game dedicated server and handles the full connec
   - [Reliability System](#reliability-system)
 - [Data Files](#data-files)
 - [Example Log](#example-log)
+- [Commands & Dashboard](#commands--dashboard)
+  - [Web Dashboard](#web-dashboard)
+  - [Available Commands](#available-commands)
 - [Extensions](#extensions)
   - [Register Spawn Processor](#register-spawn-processor)
   - [Register RPC Handler](#register-rpc-handler)
@@ -56,6 +59,12 @@ Extract `LyraServer.7z` and run the dedicated server:
 LyraServer.exe /ShooterMaps/Maps/L_Expanse -log -port=7777 -nosteam
 ```
 
+To connect with the game client (optional, for visual verification):
+
+```bash
+LyraGame.exe 127.0.0.1:7777 -game -nosteam
+```
+
 ### 2. Run client
 
 ```bash
@@ -63,6 +72,7 @@ cd client
 python client.py                     # default: 127.0.0.1:7777
 python client.py --ip 192.168.0.10   # remote server
 python client.py --port 7778         # change port
+python client.py --dashboard         # enable web dashboard (http://127.0.0.1:18765)
 ```
 
 A `client_YYYYMMDD_HHMMSS.log` file is automatically created, recording all sent/received packets and parsing results.
@@ -118,6 +128,19 @@ Lyra/
 │   │   ├── bit_writer.py                    # FBitWriter — LSB-first bit writing
 │   │   └── bit_util.py                      # Bit manipulation utils
 │   │
+│   ├── commands/                            # Interactive command system
+│   │   ├── __init__.py                      # Re-exports (CommandContext, drain_commands, tick_all)
+│   │   ├── base.py                          # Command dispatch, cmd_log, SSE log buffer
+│   │   ├── actors.py                        # Actor/channel resolution helpers
+│   │   ├── move.py                          # move command — velocity-expression movement
+│   │   ├── movement.py                      # Movement RPC payload builders (ServerMovePacked, etc.)
+│   │   └── nick.py                          # nick command — player name change
+│   │
+│   ├── dashboard/                           # Web dashboard
+│   │   ├── __init__.py                      # start_server() entry point
+│   │   ├── server.py                        # HTTP server + SSE /logs endpoint
+│   │   └── index.html                       # Single-page dashboard UI
+│   │
 │   └── net/                                 # Network protocol implementation
 │       ├── connection.py                    # NetConnection — packet send/receive state machine
 │       ├── net_serialization.py             # UE5 type serialization (Vector, Rotator, GUID, etc.)
@@ -168,6 +191,8 @@ Lyra/
 │       │   ├── types.py                     # PropertyType enum, PropertyDef, RepLayoutTemplate
 │       │   ├── custom_delta/
 │       │   │   └── base.py                  # Custom delta handler base/registry
+│       │   ├── struct_serializers/
+│       │   │   └── gas.py                   # GAS struct serializers (FGameplayAbilitySpec, etc.)
 │       │   ├── templates/
 │       │   │   └── game_state.py            # GameState server time sync callback
 │       │   └── data/
@@ -189,7 +214,8 @@ Lyra/
 │       │   └── game_state.py                # Game state (server time)
 │       │
 │       └── rpc/                             # RPC system
-│           └── base.py                      # RPCBase + RPCRegistry
+│           ├── base.py                      # RPCBase + RPCRegistry
+│           └── sender.py                    # Outgoing RPC packet builder
 │
 ├── example/                                 # Example output
 │   └── client_20260227_204023.log           # Actual connection session log
@@ -430,6 +456,32 @@ Connected! Listening...
     ReplicatedMovement={'Location': FVector(2919.94, -1122.85, -443.96), ...}, ...}
 ```
 
+## Commands & Dashboard
+
+### Web Dashboard
+
+Start the client with `--dashboard` to enable a browser-based console:
+
+```bash
+python client.py --dashboard
+```
+
+Open `http://127.0.0.1:18765` in a browser. The dashboard provides:
+- Command input with history (Arrow Up/Down)
+- Quick-access buttons for common commands
+- Real-time command output via SSE (Server-Sent Events)
+
+### Available Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `move` | Velocity-expression movement with duration | `move fx="400*sin(2*pi*t/6)" fy="400*cos(2*pi*t/6)" duration=6` |
+| `move stop` | Stop current movement | `move stop` |
+| `move status` | Show movement state | `move status` |
+| `nick` | Change player display name | `nick NewName` |
+
+`fx`, `fy`, `fz` accept math expressions with `t` (seconds since start). Supported functions: `sin`, `cos`, `tan`, `sqrt`, `abs`, `pow`, `min`, `max`, `exp`, `log`, `floor`, `ceil`. Constants: `pi`, `e`.
+
 ## Extensions
 
 ### Register Spawn Processor
@@ -477,7 +529,7 @@ TEMPLATES = [
 ## Limitations
 
 - No encryption: cannot connect to servers with AES-GCM/DTLS enabled
-- Some structs unsupported: `GameplayAbilitySpecContainer`, `ActiveGameplayEffectsContainer`, `GameplayTagStackContainer` and other GAS-related complex struct deserializers are missing
+- Some structs unsupported: `ActiveGameplayEffectsContainer`, `GameplayTagStackContainer` and other GAS-related complex struct deserializers are partially missing
 - Single connection: concurrent multi-connection is not supported
 
 ## License

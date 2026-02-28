@@ -7,7 +7,7 @@ UE5 Lyra Starter Game 전용 서버에 접속하여 핸드셰이크, 로그인, 
 
 ## 데모
 
-[![데모 영상](https://img.youtube.com/vi/qLgJLLM0T5s/maxresdefault.jpg)](https://youtu.be/qLgJLLM0T5s)
+[![데모 영상](https://img.youtube.com/vi/UikAOca_I3c/maxresdefault.jpg)](https://youtu.be/UikAOca_I3c)
 
 ## 목차
 
@@ -32,6 +32,9 @@ UE5 Lyra Starter Game 전용 서버에 접속하여 핸드셰이크, 로그인, 
   - [신뢰성 시스템](#신뢰성-시스템)
 - [데이터 파일](#데이터-파일)
 - [예제 로그](#예제-로그)
+- [커맨드 & 대시보드](#커맨드--대시보드)
+  - [웹 대시보드](#웹-대시보드)
+  - [사용 가능한 커맨드](#사용-가능한-커맨드)
 - [확장](#확장)
   - [스폰 프로세서 등록](#스폰-프로세서-등록)
   - [RPC 핸들러 등록](#rpc-핸들러-등록)
@@ -56,6 +59,12 @@ UE5 Lyra Starter Game 전용 서버에 접속하여 핸드셰이크, 로그인, 
 LyraServer.exe /ShooterMaps/Maps/L_Expanse -log -port=7777 -nosteam
 ```
 
+게임 클라이언트로 접속하려면 (선택, 시각적 확인용):
+
+```bash
+LyraGame.exe 127.0.0.1:7777 -game -nosteam
+```
+
 ### 2. 실행
 
 ```bash
@@ -63,6 +72,7 @@ cd client
 python client.py                     # 기본값: 127.0.0.1:7777
 python client.py --ip 192.168.0.10   # 원격 서버
 python client.py --port 7778         # 포트 변경
+python client.py --dashboard         # 웹 대시보드 활성화 (http://127.0.0.1:18765)
 ```
 
 실행 시 `client_YYYYMMDD_HHMMSS.log` 파일이 자동 생성되어 모든 송수신 패킷과 파싱 결과가 기록됩니다.
@@ -118,6 +128,19 @@ Lyra/
 │   │   ├── bit_writer.py                    # FBitWriter — LSB-first 비트 쓰기
 │   │   └── bit_util.py                      # 비트 조작 유틸
 │   │
+│   ├── commands/                            # 인터랙티브 커맨드 시스템
+│   │   ├── __init__.py                      # 재export (CommandContext, drain_commands, tick_all)
+│   │   ├── base.py                          # 커맨드 디스패치, cmd_log, SSE 로그 버퍼
+│   │   ├── actors.py                        # 액터/채널 검색 헬퍼
+│   │   ├── move.py                          # move 커맨드 — 속도 수식 기반 이동
+│   │   ├── movement.py                      # Movement RPC 페이로드 빌더 (ServerMovePacked 등)
+│   │   └── nick.py                          # nick 커맨드 — 플레이어 이름 변경
+│   │
+│   ├── dashboard/                           # 웹 대시보드
+│   │   ├── __init__.py                      # start_server() 진입점
+│   │   ├── server.py                        # HTTP 서버 + SSE /logs 엔드포인트
+│   │   └── index.html                       # 싱글 페이지 대시보드 UI
+│   │
 │   └── net/                                 # 네트워크 프로토콜 구현
 │       ├── connection.py                    # NetConnection — 패킷 수신/송신 상태 관리
 │       ├── net_serialization.py             # UE5 타입 직렬화 (Vector, Rotator, GUID 등)
@@ -168,6 +191,8 @@ Lyra/
 │       │   ├── types.py                     # PropertyType 열거형, PropertyDef, RepLayoutTemplate
 │       │   ├── custom_delta/
 │       │   │   └── base.py                  # 커스텀 델타 핸들러 베이스/레지스트리
+│       │   ├── struct_serializers/
+│       │   │   └── gas.py                   # GAS 구조체 직렬화기 (FGameplayAbilitySpec 등)
 │       │   ├── templates/
 │       │   │   └── game_state.py            # GameState 서버 시간 동기화 콜백
 │       │   └── data/
@@ -189,7 +214,8 @@ Lyra/
 │       │   └── game_state.py                # 게임 상태 (서버 시간)
 │       │
 │       └── rpc/                             # RPC 시스템
-│           └── base.py                      # RPCBase + RPCRegistry
+│           ├── base.py                      # RPCBase + RPCRegistry
+│           └── sender.py                    # 송신 RPC 패킷 빌더
 │
 ├── example/                                 # 예제 출력
 │   └── client_20260227_204023.log           # 실제 연결 세션 로그 (패킷 + 리플리케이션 결과)
@@ -430,6 +456,32 @@ Connected! Listening...
     ReplicatedMovement={'Location': FVector(2919.94, -1122.85, -443.96), ...}, ...}
 ```
 
+## 커맨드 & 대시보드
+
+### 웹 대시보드
+
+`--dashboard` 옵션으로 브라우저 기반 콘솔을 활성화할 수 있습니다:
+
+```bash
+python client.py --dashboard
+```
+
+`http://127.0.0.1:18765`을 브라우저에서 열면 대시보드가 표시됩니다:
+- 히스토리 지원 커맨드 입력 (화살표 위/아래)
+- 자주 쓰는 커맨드 퀵 버튼
+- SSE(Server-Sent Events)를 통한 실시간 커맨드 출력
+
+### 사용 가능한 커맨드
+
+| 커맨드 | 설명 | 예시 |
+|--------|------|------|
+| `move` | 속도 수식 기반 이동 | `move fx="400*sin(2*pi*t/6)" fy="400*cos(2*pi*t/6)" duration=6` |
+| `move stop` | 현재 이동 중지 | `move stop` |
+| `move status` | 이동 상태 표시 | `move status` |
+| `nick` | 플레이어 표시 이름 변경 | `nick NewName` |
+
+`fx`, `fy`, `fz`는 `t`(시작 후 초)를 사용하는 수학 수식을 받습니다. 지원 함수: `sin`, `cos`, `tan`, `sqrt`, `abs`, `pow`, `min`, `max`, `exp`, `log`, `floor`, `ceil`. 상수: `pi`, `e`.
+
 ## 확장
 
 ### 스폰 프로세서 등록
@@ -477,7 +529,7 @@ TEMPLATES = [
 ## 제약 사항
 
 - 암호화 미지원: AES-GCM/DTLS가 활성화된 서버에는 접속할 수 없습니다
-- 일부 구조체 미지원: `GameplayAbilitySpecContainer`, `ActiveGameplayEffectsContainer`, `GameplayTagStackContainer` 등 GAS 관련 복합 구조체의 역직렬화기가 없습니다
+- 일부 구조체 미지원: `ActiveGameplayEffectsContainer`, `GameplayTagStackContainer` 등 GAS 관련 복합 구조체의 역직렬화기가 일부 없습니다
 - 단일 연결: 동시 다중 접속은 지원하지 않습니다
 
 ## 라이선스
