@@ -476,7 +476,6 @@ TEMPLATES = [
 
 ## Limitations
 
-- Receive-only: client input, movement, and RPC sending are not implemented
 - No encryption: cannot connect to servers with AES-GCM/DTLS enabled
 - Some structs unsupported: `GameplayAbilitySpecContainer`, `ActiveGameplayEffectsContainer`, `GameplayTagStackContainer` and other GAS-related complex struct deserializers are missing
 - Single connection: concurrent multi-connection is not supported

@@ -476,7 +476,6 @@ TEMPLATES = [
 
 ## 제약 사항
 
-- 수신 전용: 클라이언트 입력, 이동, RPC 전송은 구현되어 있지 않습니다
 - 암호화 미지원: AES-GCM/DTLS가 활성화된 서버에는 접속할 수 없습니다
 - 일부 구조체 미지원: `GameplayAbilitySpecContainer`, `ActiveGameplayEffectsContainer`, `GameplayTagStackContainer` 등 GAS 관련 복합 구조체의 역직렬화기가 없습니다
 - 단일 연결: 동시 다중 접속은 지원하지 않습니다
